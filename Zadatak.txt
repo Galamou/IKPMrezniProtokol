@@ -1,0 +1,16 @@
+Mrežni protokol
+
+Potrebno je implementirati protokol za pouzdan prenos podataka oslanjajući se na UDP protokol.
+
+Da bi se postigao pouzdan prenos podataka, potrebno je obezbediti sledeće funkcionalnosti:
+1. Vršiti potvrdu prijema poruke na odredištu,
+2. Detekcija da nema potvrde prijema u definisanom vremenskom okviru,
+3. Ponovno slanje ako nema potvrde o prijemu poruke,
+4. Detekcija greške na prijemnoj strani (koristiti CRC).
+
+Pre slanja, poruke je potrebno podeliti u segmente definisane dužine. Slanje segmenata 
+implementirati koristeći algoritam klizajućeg prozora(sliding window). Za preuzimanje memorije za 
+svaki segment potrebno je koristiti buffer pool.
+
+Testirati implementirani protokol koristeći clumsy tool(https://jagt.github.io/clumsy/), koji će 
+poremetiti slanje poruka na UDP nivou. Naći optimalnu veličinu klizajućeg prozora.
