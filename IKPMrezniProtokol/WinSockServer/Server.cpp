@@ -1,6 +1,8 @@
 #include <winsock2.h>
 #include <stdio.h>
 
+#include "../Common/Common.hpp"
+
 #define SERVER_PORT 15000
 #define SERVER_SLEEP_TIME 100
 #define ACCESS_BUFFER_SIZE 1024
@@ -72,17 +74,26 @@ int main(int argc,char* argv[])
 		// set whole buffer to zero
         memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
 
+		int flags = 0;
+
 		// receive client message
-        iResult = recvfrom(serverSocket,
+		protocol_comm_data pcd;
+        pcd = recvfrom_w_crc(&serverSocket,
 			               accessBuffer,
 						   ACCESS_BUFFER_SIZE,
-						   0,
-						   (LPSOCKADDR)&clientAddress,
+						   &flags,
+						   &clientAddress,
 						   &sockAddrLen);
 		
-		if (iResult == SOCKET_ERROR)
+		if (pcd.iResult == SOCKET_ERROR)
 		{
 			printf("recvfrom failed with error: %d\n", WSAGetLastError());
+			continue;
+		}
+
+		if (pcd.rem != 0)
+		{
+			printf("crc check failed when recieving!\n");
 			continue;
 		}
 
@@ -95,7 +106,22 @@ int main(int argc,char* argv[])
 
         printf("Client connected from ip: %s, port: %d, sent: %s.\n", ipAddress, clientPort, accessBuffer);
 
-		// possible message processing logic could be placed here
+		//=======================================================================================================
+		// Sending an 'ACK' message back to the client.
+		pcd = sendto_w_crc(&serverSocket,
+						 ACK_MESSAGE,
+						 strlen(ACK_MESSAGE),
+						 &flags,
+						 &clientAddress,
+						 &sockAddrLen);
+
+		if (pcd.iResult == SOCKET_ERROR)
+		{
+			printf("sendto ACK failed with error: %d\n", WSAGetLastError());
+			closesocket(serverSocket);
+			WSACleanup();
+			return 1;
+		}
     }
 
     // if we are here, it means that server is shutting down
