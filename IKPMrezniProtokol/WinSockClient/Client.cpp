@@ -72,7 +72,33 @@ int main(int argc,char* argv[])
         return 1;
     }
 
-	printf("Message sent to server, press any key to exit.\n");
+	printf("Message sent to server. Recieving ACK.\n");
+
+	pcd = recvfrom_w_crc(&clientSocket,
+		outgoingBuffer,
+		4, // recieving ACK + 1 char for CRC
+		&flags,
+		&serverAddress,
+		&sockAddrLen);
+
+	if (pcd.iResult == SOCKET_ERROR)
+	{
+		printf("recvfrom failed with error: %d\n", WSAGetLastError());
+		closesocket(clientSocket);
+		WSACleanup();
+		return 1;
+	}
+
+	if (pcd.rem != 0)
+	{
+		printf("crc check failed when recieving!\n");
+	}
+	else
+	{
+		printf("ACK recieved!");
+	}
+
+	printf("\nPress any key to continue...");
 	_getch();
 
     iResult = closesocket(clientSocket);
