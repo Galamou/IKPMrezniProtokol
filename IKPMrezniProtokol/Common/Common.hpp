@@ -9,6 +9,52 @@ char ACK_MESSAGE[4] = { 'A', 'C', 'K', '\0' };
 
 // ## CRC #############################################################################################################
 
+#define POLYNOMIAL 0xD8  /* 11011 followed by 0's */
+#define WIDTH  (8 * sizeof(char))
+#define TOPBIT (1 << (WIDTH - 1))
+
+char crc(char const message[], int nBytes) // Returns a remainder of the CRC algorithm.
+										   // Before sending a message: append the remainder at the end of the data.
+										   // After recieving a message: check if the remainder is 0 after running the data through the CRC algorithm.
+{
+	char remainder = 0;
+
+	/*
+	 * Perform modulo-2 division, a byte at a time.
+	 */
+	for (int byte = 0; byte < nBytes; ++byte)
+	{
+		/*
+		 * Bring the next byte into the remainder.
+		 */
+		remainder ^= (message[byte] << (WIDTH - 8));
+
+		/*
+		 * Perform modulo-2 division, a bit at a time.
+		 */
+		for (char bit = 8; bit > 0; --bit)
+		{
+			/*
+			 * Try to divide the current data bit.
+			 */
+			if (remainder & TOPBIT)
+			{
+				remainder = (remainder << 1) ^ POLYNOMIAL;
+			}
+			else
+			{
+				remainder = (remainder << 1);
+			}
+		}
+	}
+
+	/*
+	 * The final remainder is the CRC result.
+	 */
+	return (remainder);
+
+}
+
 // A return value used by the SEND and RECIEVE functions for CRC.
 struct protocol_comm_data
 {
@@ -56,52 +102,6 @@ protocol_comm_data sendto_w_crc(SOCKET* socket, char* data, int data_length, int
 	pcd.rem = rem;
 
 	return pcd;
-}
-
-#define POLYNOMIAL 0xD8  /* 11011 followed by 0's */
-#define WIDTH  (8 * sizeof(char))
-#define TOPBIT (1 << (WIDTH - 1))
-
-char crc(char const message[], int nBytes) // Returns a remainder of the CRC algorithm.
-										   // Before sending a message: append the remainder at the end of the data.
-										   // After recieving a message: check if the remainder is 0 after running the data through the CRC algorithm.
-{
-	char remainder = 0;
-
-	/*
-	 * Perform modulo-2 division, a byte at a time.
-	 */
-	for (int byte = 0; byte < nBytes; ++byte)
-	{
-		/*
-		 * Bring the next byte into the remainder.
-		 */
-		remainder ^= (message[byte] << (WIDTH - 8));
-
-		/*
-		 * Perform modulo-2 division, a bit at a time.
-		 */
-		for (char bit = 8; bit > 0; --bit)
-		{
-			/*
-			 * Try to divide the current data bit.
-			 */
-			if (remainder & TOPBIT)
-			{
-				remainder = (remainder << 1) ^ POLYNOMIAL;
-			}
-			else
-			{
-				remainder = (remainder << 1);
-			}
-		}
-	}
-
-	/*
-	 * The final remainder is the CRC result.
-	 */
-	return (remainder);
-
 }
 
 #endif // !COMMON_HPP_INCLUDE

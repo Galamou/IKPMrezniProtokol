@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <conio.h>
 
+#include "../Common/Common.hpp"
+
 #define SERVER_PORT 15000
 #define OUTGOING_BUFFER_SIZE 1024
 
@@ -51,15 +53,18 @@ int main(int argc,char* argv[])
 
 	// Read string from user into outgoing buffer
     gets_s(outgoingBuffer, OUTGOING_BUFFER_SIZE);
-	
-    iResult = sendto(clientSocket,
+
+	int flags = 0;
+	protocol_comm_data pcd;
+
+    pcd = sendto_w_crc(&clientSocket,
 					 outgoingBuffer,
 					 strlen(outgoingBuffer),
-					 0,
-					 (LPSOCKADDR)&serverAddress,
-					 sockAddrLen);
+					 &flags,
+					 &serverAddress,
+					 &sockAddrLen);
 
-    if (iResult == SOCKET_ERROR)
+    if (pcd.iResult == SOCKET_ERROR)
     {
         printf("sendto failed with error: %d\n", WSAGetLastError());
         closesocket(clientSocket);
