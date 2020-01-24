@@ -1,0 +1,88 @@
+Pitanja iz protokola:
+
+1. Da li ima vise klijenata? (jedan thread za svakog klijenta na serveru?)
+Za sad samo jedan klijent. Ako mi hocemo, mozemo da dodamo vise klijenata, ali nije neophodno.
+
+2. Da li klijent moze da salje sledecu poruku pre nego sto je primio potvrdu za sve segmente prethodne poruke? (jedan thread za svaku poruku na klijentu?)
+Da. Ali kaze da bi nam to moglo biti tesko, pa da implementiram prvo da ACKuje celu poruku, pa tek onda salje sledecu. A posle bi bilo pozeljno da uradimo 
+da se salje vise poruka (pre nego sto su primljeni ACKovi za prethodne).
+
+3. Buffer pool?
+I server i klijent koriste buffer pool.
+Izgled buffer pool-a:
+bufferPool = [
+	[pBuffer_0, usingBuffer_0],
+	[pBuffer_1, usingBuffer_1],
+	...
+	[pBuffer_9, usingBuffer_9]
+]
+Objasnjenje:
+Asistent je rekao da jedan buffer moze biti npr. velicine tacno jednog segmenta (tako je najlakse).
+pBuffer - To je pokazivac na memoriju gde ce se smestiti jedan primljeni segment. Izgleda ovako:
+Segment = *pBuffer
+Taj segment izgleda ovako: 
+Segment = [SegmentIndex, SegmentLength, SegmentContent, SegmentCRC]
+
+usingBuffer - To je boolean koji nam govori da li se bafer trenutno koristi. Postaje true kad se u njega smesti neki segment (tj kad ga server primi). 
+Postaje false kad se segment procita iz bafera (i tad moze ponovo da se koristi).
+
+Broj bafera mi biramo. Npr 10 (ili 100, 500, koliko nam bude bilo potrebno za testiranje).
+Duzina bafera u TCP je 64KB, pa i nasi treba da su toliko dugi. Zbog toga ce nam i duzina segmenta koji klijent salje biti 64KB (zajedno sa CRC, length i 
+index-om).
+
+* To znaci da ako imamo 10 buffer-a, server ima samo 640KB memorije u koju moze da prihvata poruke.
+Za testiranje je neophodno slati i po vise stotina MB, tako da server mora brzo oslobadjati bafere (odnosno smestati u njih i citati iz njih), da se ne bi 
+desilo da mu stigne segment, a nema gde da ga stavi.
+
+4. Threadovi na serveru?
+	1) Za prihvatanje segmenata u bafere i citanje segmenata iz bafera (u main-u, ovde main moze da sluzi kao jedan thread)
+	2) Za slanje ACK (u prvom threadu)
+
+5. Threadovi na klijentu?
+	1) Za segmentiranje poruka, skladistenje segmenata i slanje segmentiranih poruka na server. (main)
+	2) Za primanje ACK za svaki poslati segment. (prvi thread)
+	3) Za proveru da li je istekao TIMEOUT za bilo koji segment. (drugi thread)
+
+6. Strukture za Segment?
+SEGMENT_LENGTH = 64000		// Fiksno 64KB
+BUFFER_NUMBER = 10			// Promenljivo, koliko mi odlucimo
+struct Segment {
+	int SegmentIndex;
+	int SegmentLength;
+	char SegmentContent[SEGMENT_LENGTH];
+	int SegmentCRC;
+}
+struct Buffer {
+	struct Segment* pBuffer;				// pokazivac na buffer koji je velicine jednog segmenta
+	bool usingBuffer;						// Kaze nam da li se sada taj buffer koristi
+}
+struct Buffer bufferPool[BUFFER_NUMBER];
+
+7. Strukture za ACK i TIMEOUT?
+struct ACK {
+	bool SegmentACK;                        // Da li je segment ACKovan
+	int SegmentIndex;
+}
+struct ACK ACKs[SEGMENT_NUMBER];
+
+struct TIMEOUT {
+	time_t SegmentSentAt;					// Kad je segment poslat
+	int SegmentIndex;						// Koji je segment poslat
+}
+struct TIMEOUT TIMEOUTs[SEGMENT_NUMBER];
+
+
+8. Dokumentacija?
+Treba da je duga 3-4 strane. To je opis projekta. Tu pisemo sta tacno treba da rade klijent i server, kako smo mi to implementirali, kako smo to testirali i 
+kako smo mogli to bolje da uradimo.
+Dodatno, treba iskomentarisati kod u nekom stilu komentarisanja za C jezik(po nasem izboru, rekao je da nadjemo neki stil na internetu). Komentari se isto 
+smatraju dokumentacijom.
+
+9. Testiranje?
+Testiranje treba da nadje optimalnu duzinu segmenta za slanje. Definicija optimalnosti je: da se posalje sto vise, sto duzih poruka sto brze, a da server i 
+dalje prima sve te poruke. Sta znaci da prima? Da se kanal toliko ne zagusi da poruke jednostavno nikad ne stignu do servera.
+
+10. CRC?
+Mora da se radi nad celom strukturom segmenta, ne samo nad onim delom strukture koji je poruka.
+
+
