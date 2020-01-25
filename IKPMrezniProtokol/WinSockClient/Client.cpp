@@ -57,11 +57,6 @@ void CreateSegments(char[], struct Buffer[BUFFER_NUMBER]);
 // UDP client that uses blocking sockets
 int main(int argc, char* argv[])
 {
-	printf("sizeof(struct Segment) = %d\n", sizeof(struct Segment));
-	printf("sizeof(int) = %d\n", sizeof(int));
-	printf("sizeof(char) = %d\n", sizeof(char));
-	printf("SEGMENT_CONTENT_LENGTH = %d\n", SEGMENT_CONTENT_LENGTH);
-
 	// Server address
 	sockaddr_in serverAddress;
 	// size of sockaddr structure
@@ -139,51 +134,6 @@ int main(int argc, char* argv[])
 			// Prosledi mu se Segment bez polja SegmentCRC, a izracunati CRC se onda stavi u polje SegmentCRC.
 			int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
 			bufferPool[i].pBuffer->SegmentCRC = remainder;
-
-			// MARKOV KOD
-			//int flags = 0;
-			//protocol_comm_data pcd;
-
-			//pcd = sendto_w_crc(&clientSocket,
-			//	outgoingBuffer,
-			//	strlen(outgoingBuffer),
-			//	&flags,
-			//	&serverAddress,
-			//	&sockAddrLen);
-
-			//if (pcd.iResult == SOCKET_ERROR)
-			//{
-			//	printf("sendto failed with error: %d\n", WSAGetLastError());
-			//	closesocket(clientSocket);
-			//	WSACleanup();
-			//	return 1;
-			//}
-
-			//printf("Message sent to server. Recieving ACK.\n");
-
-			//pcd = recvfrom_w_crc(&clientSocket,
-			//	outgoingBuffer,
-			//	4, // recieving ACK + 1 char for CRC
-			//	&flags,
-			//	&serverAddress,
-			//	&sockAddrLen);
-
-			//if (pcd.iResult == SOCKET_ERROR)
-			//{
-			//	printf("recvfrom failed with error: %d\n", WSAGetLastError());
-			//	closesocket(clientSocket);
-			//	WSACleanup();
-			//	return 1;
-			//}
-
-			//if (pcd.rem != 0)
-			//{
-			//	printf("crc check failed when recieving!\n");
-			//}
-			//else
-			//{
-			//	printf("ACK recieved!");
-			//}
 
 			// Slanje jednog segmenta iz bufferPoola.
 			iResult = sendto(clientSocket,

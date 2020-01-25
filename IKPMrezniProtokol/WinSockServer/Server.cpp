@@ -1,5 +1,6 @@
 #include <winsock2.h>
 #include <stdio.h>
+#include <conio.h>
 
 #define SERVER_PORT 15000
 #define SERVER_SLEEP_TIME 100
@@ -8,6 +9,8 @@
 
 #include "../Common/Common.hpp"
 
+// Povratna vrednost funkcije recv na serveru kad klijent zatvori svoj socket
+#define CLIENT_SHUTDOWN 0
 
 // Duzina segmenta (tj BUFFER_SIZE) treba da je 64KB (64000B) (Ali za sad koristimo manje da bi mogli da vidimo 
 // sta se desava)
@@ -113,56 +116,6 @@ int main(int argc, char* argv[])
 		struct Segment seg;
 		memset(&seg, 0, sizeof(struct Segment));
 
-		// MARKOV KOD
-		//int flags = 0;
-
-		//// receive client message
-		//protocol_comm_data pcd;
-		//pcd = recvfrom_w_crc(&serverSocket,
-		//	accessBuffer,
-		//	ACCESS_BUFFER_SIZE,
-		//	&flags,
-		//	&clientAddress,
-		//	&sockAddrLen);
-
-		//if (pcd.iResult == SOCKET_ERROR)
-		//{
-		//	printf("recvfrom failed with error: %d\n", WSAGetLastError());
-		//	continue;
-		//}
-
-		//if (pcd.rem != 0)
-		//{
-		//	printf("crc check failed when recieving!\n");
-		//	continue;
-		//}
-
-		//char ipAddress[IP_ADDRESS_LEN];
-		//// copy client ip to local char[]
-		//strcpy_s(ipAddress, sizeof(ipAddress), inet_ntoa(clientAddress.sin_addr));
-		//// convert port number from TCP/IP byte order to
-		//// little endian byte order
-		//int clientPort = ntohs((u_short)clientAddress.sin_port);
-
-		//printf("Client connected from ip: %s, port: %d, sent: %s.\n", ipAddress, clientPort, accessBuffer);
-
-		////=======================================================================================================
-		//// Sending an 'ACK' message back to the client.
-		//pcd = sendto_w_crc(&serverSocket,
-		//	ACK_MESSAGE,
-		//	strlen(ACK_MESSAGE),
-		//	&flags,
-		//	&clientAddress,
-		//	&sockAddrLen);
-
-		//if (pcd.iResult == SOCKET_ERROR)
-		//{
-		//	printf("sendto ACK failed with error: %d\n", WSAGetLastError());
-		//	closesocket(serverSocket);
-		//	WSACleanup();
-		//	return 1;
-		//}
-
 		// receive client message
 		iResult = recvfrom(serverSocket,
 			(char*)&seg,
@@ -175,6 +128,11 @@ int main(int argc, char* argv[])
 		{
 			printf("recvfrom failed with error: %d\n", WSAGetLastError());
 			continue;
+		}
+		else if (iResult == CLIENT_SHUTDOWN)
+		{
+			printf("Client socket shut down.\n");
+			break;
 		}
 
 		// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
@@ -232,7 +190,9 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	printf("Server successfully shut down.\n");
+	printf("Press Enter to close application...");
+	_getch();
+
 	return 0;
 }
 
