@@ -120,69 +120,87 @@ int main(int argc, char* argv[])
 		// Ne moraju svi bufferi iz bufferPoola biti zauzeti (ako je poruka kraca).
 		CreateSegments(message, bufferPool);
 
-		// SEND -------------------------------------------------------------------
-		// Salju se svi segmenti jedne poruke jedan po jedan.
-		for (int i = 0; bufferPool[i].usingBuffer != false; i++)
+		bool repeatSend;
+		do
 		{
-			// Ako je usingBuffer false, to znaci da se taj buffer ne koristi.
-			// Ako je true, znaci da se u tom bufferu nalazi jedan segment poruke i njega zelimo da posaljemo.
+			repeatSend = false;
 
-			// Postavlja se vrednost SegmentIndex segmentu koji se trenutno salje.
-			bufferPool[i].pBuffer->SegmentIndex = i;
-			
-			// Postavlja se vrednost SegmentCRC uz pomoc tvoje metode. 
-			// Prosledi mu se Segment bez polja SegmentCRC, a izracunati CRC se onda stavi u polje SegmentCRC.
-			int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
-			bufferPool[i].pBuffer->SegmentCRC = remainder;
-
-			// Slanje jednog segmenta iz bufferPoola.
-			iResult = sendto(clientSocket,
-				(char*)(bufferPool[i].pBuffer),
-				sizeof(struct Segment),
-				0,
-				(LPSOCKADDR)&serverAddress,
-				sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
+			// SEND -------------------------------------------------------------------
+			// Salju se svi segmenti jedne poruke jedan po jedan.
+			for (int i = 0; i < BUFFER_NUMBER; i++)
 			{
-				printf("sendto failed with error: %d\n", WSAGetLastError());
-				closesocket(clientSocket);
-				WSACleanup();
-				return 1;
+				if (bufferPool[i].usingBuffer)
+				{
+					// Ako je usingBuffer false, to znaci da se taj buffer ne koristi.
+					// Ako je true, znaci da se u tom bufferu nalazi jedan segment poruke i njega zelimo da posaljemo.
+
+					// Postavlja se vrednost SegmentIndex segmentu koji se trenutno salje.
+					bufferPool[i].pBuffer->SegmentIndex = i;
+
+					// Postavlja se vrednost SegmentCRC uz pomoc tvoje metode. 
+					// Prosledi mu se Segment bez polja SegmentCRC, a izracunati CRC se onda stavi u polje SegmentCRC.
+					int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
+					bufferPool[i].pBuffer->SegmentCRC = remainder;
+
+					// Slanje jednog segmenta iz bufferPoola.
+					iResult = sendto(clientSocket,
+						(char*)(bufferPool[i].pBuffer),
+						sizeof(struct Segment),
+						0,
+						(LPSOCKADDR)&serverAddress,
+						sockAddrLen);
+
+					if (iResult == SOCKET_ERROR)
+					{
+						printf("sendto failed with error: %d\n", WSAGetLastError());
+						closesocket(clientSocket);
+						WSACleanup();
+						return 1;
+					}
+
+					// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
+					char content[SEGMENT_CONTENT_LENGTH + 1];
+					memcpy(content, bufferPool[i].pBuffer->SegmentContent, bufferPool[i].pBuffer->SegmentLength);
+					content[bufferPool[i].pBuffer->SegmentLength] = '\0';
+					printf("Sent message: %s\n", content);
+
+					// RECEIVE ----------------------------------------------------------------
+					struct ACK ack;
+					memset(&ack, 0, sizeof(struct ACK));
+					// receive server message
+					iResult = recvfrom(clientSocket,
+						(char*)&ack,
+						sizeof(struct ACK),
+						0,
+						(LPSOCKADDR)&serverAddress,
+						&sockAddrLen);
+
+					if (iResult == SOCKET_ERROR)
+					{
+						printf("recvfrom failed with error: %d\n", WSAGetLastError());
+						continue;
+					}
+
+					printf("Received ACK = %d\n", ack.SegmentACK);
+
+					if (ack.SegmentACK == 1)
+					{
+						// Poruka je ACKovana, i buffer moze da se oslobodi
+						bufferPool[i].usingBuffer = false;
+						memset(bufferPool[i].pBuffer, 0, sizeof(struct Segment));
+					}
+				}
 			}
 
-			// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
-			char content[SEGMENT_CONTENT_LENGTH + 1];
-			memcpy(content, bufferPool[i].pBuffer->SegmentContent, bufferPool[i].pBuffer->SegmentLength);
-			content[bufferPool[i].pBuffer->SegmentLength] = '\0';
-			printf("Sent message: %s\n", content);
-
-			// RECEIVE ----------------------------------------------------------------
-			struct ACK ack;
-			memset(&ack, 0, sizeof(struct ACK));
-			// receive server message
-			iResult = recvfrom(clientSocket,
-				(char*)&ack,
-				sizeof(struct ACK),
-				0,
-				(LPSOCKADDR)&serverAddress,
-				&sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
+			for (int i = 0; i < BUFFER_NUMBER; ++i)
 			{
-				printf("recvfrom failed with error: %d\n", WSAGetLastError());
-				continue;
+				if (bufferPool[i].usingBuffer)
+				{
+					repeatSend = true;
+					break;
+				}
 			}
-
-			printf("Received ACK = %d\n", ack.SegmentACK);
-
-			if (ack.SegmentACK == 1)
-			{
-				// Poruka je ACKovana, i buffer moze da se oslobodi
-				bufferPool[i].usingBuffer = false;
-				memset(bufferPool[i].pBuffer, 0, sizeof(struct Segment));
-			}
-		}
+		} while (repeatSend);
 		// END --------------------------------------------------------------------
 		printf("Message sent to server, press Enter to continue, press Q key to exit.\n");
 		char exitKey = _getch();

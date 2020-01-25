@@ -116,6 +116,7 @@ int main(int argc, char* argv[])
 	printf("Simple UDP server started and waiting client messages.\n");
 
 	// Main server loop
+	int test = 0; // svaki 2. segment 'nece' dobro proci (radi testiranja ACKa)
 	while (1)
 	{
 		// RECEIVE ----------------------------------------------------------------
@@ -160,8 +161,10 @@ int main(int argc, char* argv[])
 		int remainder = crc((char*)&seg, sizeofSeg);
 
 		// Popunjavanje strukture za ACK
-		ack.SegmentACK = (remainder == 0) ? 1 : 0;
+		ack.SegmentACK = (remainder + test++ == 0) ? 1 : 0;
 		ack.SegmentIndex = seg.SegmentIndex;
+
+		if (test > 1) test = 0;
 
 		// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
 		// Posle ce samo odbaciti segment.
