@@ -1,5 +1,6 @@
 #include <winsock2.h>
 #include <stdio.h>
+#include <conio.h>
 
 #define SERVER_PORT 15000
 #define SERVER_SLEEP_TIME 100
@@ -8,6 +9,8 @@
 
 #include "../Common/Common.hpp"
 
+// Povratna vrednost funkcije recv na serveru kad klijent zatvori svoj socket
+#define CLIENT_SHUTDOWN 0
 
 // Duzina segmenta (tj BUFFER_SIZE) treba da je 64KB (64000B) (Ali za sad koristimo manje da bi mogli da vidimo 
 // sta se desava)
@@ -16,27 +19,33 @@
 #define BUFFER_NUMBER 10			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
+#pragma pack(push,1)
 struct Segment {
 	int SegmentLength;
 	char SegmentContent[SEGMENT_CONTENT_LENGTH];
 	int SegmentIndex;
 	char SegmentCRC;
 };
+#pragma pack(pop)
 
 // Buffer za smestanje jednog segmenta. 
 // Ima pokazivac na memoriju gde je smesten jedan segment poruke.
 // Ima polje usingSegment koje nam kaze da li je buffer zauzet.
+#pragma pack(push,1)
 struct Buffer {
 	struct Segment* pBuffer;		// bufferi su velicine jednog segmenta
 	bool usingBuffer;				// da li je u bufferu ACKovana poruka?
 };
+#pragma pack(pop)
 
 
 // Struktura za ACK. Mislim da ne mora da se koristi CRC za ACK.
+#pragma pack(push,1)
 struct ACK {
 	int SegmentIndex;
 	bool SegmentACK;                        // Da li je segment ACKovan
 };
+#pragma pack(pop)
 
 // Initializes WinSock2 library
 // Returns true if succeeded, false otherwise.
@@ -116,59 +125,7 @@ int main(int argc, char* argv[])
 
 		// set whole buffer to zero
 		struct Segment seg;
-		memset(seg.SegmentContent, 0, SEGMENT_CONTENT_LENGTH);
-		seg.SegmentIndex = 0;
-		seg.SegmentLength = 0;
-
-		// MARKOV KOD
-		//int flags = 0;
-
-		//// receive client message
-		//protocol_comm_data pcd;
-		//pcd = recvfrom_w_crc(&serverSocket,
-		//	accessBuffer,
-		//	ACCESS_BUFFER_SIZE,
-		//	&flags,
-		//	&clientAddress,
-		//	&sockAddrLen);
-
-		//if (pcd.iResult == SOCKET_ERROR)
-		//{
-		//	printf("recvfrom failed with error: %d\n", WSAGetLastError());
-		//	continue;
-		//}
-
-		//if (pcd.rem != 0)
-		//{
-		//	printf("crc check failed when recieving!\n");
-		//	continue;
-		//}
-
-		//char ipAddress[IP_ADDRESS_LEN];
-		//// copy client ip to local char[]
-		//strcpy_s(ipAddress, sizeof(ipAddress), inet_ntoa(clientAddress.sin_addr));
-		//// convert port number from TCP/IP byte order to
-		//// little endian byte order
-		//int clientPort = ntohs((u_short)clientAddress.sin_port);
-
-		//printf("Client connected from ip: %s, port: %d, sent: %s.\n", ipAddress, clientPort, accessBuffer);
-
-		////=======================================================================================================
-		//// Sending an 'ACK' message back to the client.
-		//pcd = sendto_w_crc(&serverSocket,
-		//	ACK_MESSAGE,
-		//	strlen(ACK_MESSAGE),
-		//	&flags,
-		//	&clientAddress,
-		//	&sockAddrLen);
-
-		//if (pcd.iResult == SOCKET_ERROR)
-		//{
-		//	printf("sendto ACK failed with error: %d\n", WSAGetLastError());
-		//	closesocket(serverSocket);
-		//	WSACleanup();
-		//	return 1;
-		//}
+		memset(&seg, 0, sizeof(struct Segment));
 
 		// receive client message
 		iResult = recvfrom(serverSocket,
@@ -182,6 +139,11 @@ int main(int argc, char* argv[])
 		{
 			printf("recvfrom failed with error: %d\n", WSAGetLastError());
 			continue;
+		}
+		else if (iResult == CLIENT_SHUTDOWN)
+		{
+			printf("Client socket shut down.\n");
+			break;
 		}
 
 		// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
@@ -205,7 +167,7 @@ int main(int argc, char* argv[])
 		// Posle ce samo odbaciti segment.
 		iResult = sendto(serverSocket,
 			(char*)&ack,
-			sizeof(int),
+			sizeof(struct ACK),
 			0,
 			(LPSOCKADDR)&clientAddress,
 			sockAddrLen);
@@ -239,7 +201,9 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	printf("Server successfully shut down.\n");
+	printf("Press Enter to close application...");
+	_getch();
+
 	return 0;
 }
 

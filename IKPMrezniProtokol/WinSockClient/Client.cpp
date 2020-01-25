@@ -16,27 +16,33 @@
 #define BUFFER_NUMBER 10			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
+#pragma pack(push,1)
 struct Segment {
 	int SegmentLength;
 	char SegmentContent[SEGMENT_CONTENT_LENGTH];
 	int SegmentIndex;
 	char SegmentCRC;
 };
+#pragma pack(pop)
 
 // Buffer za smestanje jednog segmenta. 
 // Ima pokazivac na memoriju gde je smesten jedan segment poruke.
 // Ima polje usingSegment koje nam kaze da li je buffer zauzet.
+#pragma pack(push,1)
 struct Buffer {
 	struct Segment* pBuffer;		// bufferi su velicine jednog segmenta
 	bool usingBuffer;				// da li je u bufferu ACKovana poruka?
 };
+#pragma pack(pop)
 
 
 // Struktura za ACK. Mislim da ne mora da se koristi CRC za ACK.
+#pragma pack(push,1)
 struct ACK {
 	int SegmentIndex;
 	bool SegmentACK;                        // Da li je segment ACKovan
 };
+#pragma pack(pop)
 
 
 bool InitializeWindowsSockets();
@@ -62,17 +68,6 @@ int main(int argc, char* argv[])
 
 	// Initialize windows sockets for this process
 	InitializeWindowsSockets();
-
-	// Testiranje velicine segmenta
-	Segment segmentic;
-	printf("%d\n", sizeof(struct Segment));
-	printf("%d\n", sizeof(segmentic.SegmentIndex));
-	printf("%d\n", sizeof(segmentic.SegmentLength));
-	printf("%d\n", sizeof(segmentic.SegmentCRC));
-	printf("%d\n", sizeof(segmentic.SegmentContent));
-
-	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength)
-		+ sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
 
 	// Initialize serverAddress structure
 	memset((char*)&serverAddress, 0, sizeof(serverAddress));
@@ -108,7 +103,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	printf("Press enter to start...");
+	printf("Press enter to start...\n");
 	_getch();
 
 	// Trenutno se salje jedna te ista poruka.
@@ -136,54 +131,9 @@ int main(int argc, char* argv[])
 			bufferPool[i].pBuffer->SegmentIndex = i;
 			
 			// Postavlja se vrednost SegmentCRC uz pomoc tvoje metode. 
-			// Prosledi mu se Segment be polja za CRC, a CRC se stavi onda u polje SegmentCRC
-			int remainder = crc((char*)bufferPool[i].pBuffer, sizeofSeg - sizeof(char));
+			// Prosledi mu se Segment bez polja SegmentCRC, a izracunati CRC se onda stavi u polje SegmentCRC.
+			int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
 			bufferPool[i].pBuffer->SegmentCRC = remainder;
-
-			// MARKOV KOD
-			//int flags = 0;
-			//protocol_comm_data pcd;
-
-			//pcd = sendto_w_crc(&clientSocket,
-			//	outgoingBuffer,
-			//	strlen(outgoingBuffer),
-			//	&flags,
-			//	&serverAddress,
-			//	&sockAddrLen);
-
-			//if (pcd.iResult == SOCKET_ERROR)
-			//{
-			//	printf("sendto failed with error: %d\n", WSAGetLastError());
-			//	closesocket(clientSocket);
-			//	WSACleanup();
-			//	return 1;
-			//}
-
-			//printf("Message sent to server. Recieving ACK.\n");
-
-			//pcd = recvfrom_w_crc(&clientSocket,
-			//	outgoingBuffer,
-			//	4, // recieving ACK + 1 char for CRC
-			//	&flags,
-			//	&serverAddress,
-			//	&sockAddrLen);
-
-			//if (pcd.iResult == SOCKET_ERROR)
-			//{
-			//	printf("recvfrom failed with error: %d\n", WSAGetLastError());
-			//	closesocket(clientSocket);
-			//	WSACleanup();
-			//	return 1;
-			//}
-
-			//if (pcd.rem != 0)
-			//{
-			//	printf("crc check failed when recieving!\n");
-			//}
-			//else
-			//{
-			//	printf("ACK recieved!");
-			//}
 
 			// Slanje jednog segmenta iz bufferPoola.
 			iResult = sendto(clientSocket,
@@ -213,7 +163,7 @@ int main(int argc, char* argv[])
 			// receive server message
 			iResult = recvfrom(clientSocket,
 				(char*)&ack,
-				sizeof(int),
+				sizeof(struct ACK),
 				0,
 				(LPSOCKADDR)&serverAddress,
 				&sockAddrLen);
@@ -230,6 +180,7 @@ int main(int argc, char* argv[])
 			{
 				// Poruka je ACKovana, i buffer moze da se oslobodi
 				bufferPool[i].usingBuffer = false;
+				memset(bufferPool[i].pBuffer, 0, sizeof(struct Segment));
 			}
 		}
 		// END --------------------------------------------------------------------
