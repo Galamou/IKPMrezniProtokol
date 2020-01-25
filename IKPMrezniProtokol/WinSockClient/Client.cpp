@@ -63,6 +63,17 @@ int main(int argc, char* argv[])
 	// Initialize windows sockets for this process
 	InitializeWindowsSockets();
 
+	// Testiranje velicine segmenta
+	Segment segmentic;
+	printf("%d\n", sizeof(struct Segment));
+	printf("%d\n", sizeof(segmentic.SegmentIndex));
+	printf("%d\n", sizeof(segmentic.SegmentLength));
+	printf("%d\n", sizeof(segmentic.SegmentCRC));
+	printf("%d\n", sizeof(segmentic.SegmentContent));
+
+	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength)
+		+ sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
+
 	// Initialize serverAddress structure
 	memset((char*)&serverAddress, 0, sizeof(serverAddress));
 	serverAddress.sin_family = AF_INET;
@@ -126,7 +137,7 @@ int main(int argc, char* argv[])
 			
 			// Postavlja se vrednost SegmentCRC uz pomoc tvoje metode. 
 			// Prosledi mu se Segment be polja za CRC, a CRC se stavi onda u polje SegmentCRC
-			int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
+			int remainder = crc((char*)bufferPool[i].pBuffer, sizeofSeg - sizeof(char));
 			bufferPool[i].pBuffer->SegmentCRC = remainder;
 
 			// MARKOV KOD

@@ -63,6 +63,17 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	// Testiranje velicine segmenta
+	Segment segmentic;
+	printf("%d\n", sizeof(struct Segment));
+	printf("%d\n", sizeof(segmentic.SegmentIndex));
+	printf("%d\n", sizeof(segmentic.SegmentLength));
+	printf("%d\n", sizeof(segmentic.SegmentCRC));
+	printf("%d\n", sizeof(segmentic.SegmentContent));
+
+	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength) 
+				  + sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
+
 	// Initialize serverAddress structure used by bind
 	memset((char*)&serverAddress, 0, sizeof(serverAddress));
 	serverAddress.sin_family = AF_INET; /*set server address protocol family*/
@@ -184,7 +195,7 @@ int main(int argc, char* argv[])
 		memset(&ack, 0, sizeof(struct ACK));
 		
 		// Racunanje CRC za pristigli segment
-		int remainder = crc((char*)&seg, sizeof(struct Segment));
+		int remainder = crc((char*)&seg, sizeofSeg);
 
 		// Popunjavanje strukture za ACK
 		ack.SegmentACK = (remainder == 0) ? 1 : 0;
