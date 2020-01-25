@@ -16,27 +16,33 @@
 #define BUFFER_NUMBER 10			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
+#pragma pack(push,1)
 struct Segment {
 	int SegmentLength;
 	char SegmentContent[SEGMENT_CONTENT_LENGTH];
 	int SegmentIndex;
 	char SegmentCRC;
 };
+#pragma pack(pop)
 
 // Buffer za smestanje jednog segmenta. 
 // Ima pokazivac na memoriju gde je smesten jedan segment poruke.
 // Ima polje usingSegment koje nam kaze da li je buffer zauzet.
+#pragma pack(push,1)
 struct Buffer {
 	struct Segment* pBuffer;		// bufferi su velicine jednog segmenta
 	bool usingBuffer;				// da li je u bufferu ACKovana poruka?
 };
+#pragma pack(pop)
 
 
 // Struktura za ACK. Mislim da ne mora da se koristi CRC za ACK.
+#pragma pack(push,1)
 struct ACK {
 	int SegmentIndex;
 	bool SegmentACK;                        // Da li je segment ACKovan
 };
+#pragma pack(pop)
 
 // Initializes WinSock2 library
 // Returns true if succeeded, false otherwise.
@@ -192,7 +198,7 @@ int main(int argc, char* argv[])
 		// Posle ce samo odbaciti segment.
 		iResult = sendto(serverSocket,
 			(char*)&ack,
-			sizeof(int),
+			sizeof(struct ACK),
 			0,
 			(LPSOCKADDR)&clientAddress,
 			sockAddrLen);
