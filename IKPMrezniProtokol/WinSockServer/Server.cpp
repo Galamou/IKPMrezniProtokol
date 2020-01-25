@@ -105,9 +105,7 @@ int main(int argc, char* argv[])
 
 		// set whole buffer to zero
 		struct Segment seg;
-		memset(seg.SegmentContent, 0, SEGMENT_CONTENT_LENGTH);
-		seg.SegmentIndex = 0;
-		seg.SegmentLength = 0;
+		memset(&seg, 0, sizeof(struct Segment));
 
 		// MARKOV KOD
 		//int flags = 0;

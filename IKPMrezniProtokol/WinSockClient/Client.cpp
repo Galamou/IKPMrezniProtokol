@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	printf("Press enter to start...");
+	printf("Press enter to start...\n");
 	_getch();
 
 	// Trenutno se salje jedna te ista poruka.
@@ -125,7 +125,7 @@ int main(int argc, char* argv[])
 			bufferPool[i].pBuffer->SegmentIndex = i;
 			
 			// Postavlja se vrednost SegmentCRC uz pomoc tvoje metode. 
-			// Prosledi mu se Segment be polja za CRC, a CRC se stavi onda u polje SegmentCRC
+			// Prosledi mu se Segment bez polja SegmentCRC, a izracunati CRC se onda stavi u polje SegmentCRC.
 			int remainder = crc((char*)bufferPool[i].pBuffer, sizeof(struct Segment) - sizeof(char));
 			bufferPool[i].pBuffer->SegmentCRC = remainder;
 
@@ -219,6 +219,7 @@ int main(int argc, char* argv[])
 			{
 				// Poruka je ACKovana, i buffer moze da se oslobodi
 				bufferPool[i].usingBuffer = false;
+				memset(bufferPool[i].pBuffer, 0, sizeof(struct Segment));
 			}
 		}
 		// END --------------------------------------------------------------------
