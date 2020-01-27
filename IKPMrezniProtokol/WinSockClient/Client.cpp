@@ -48,7 +48,7 @@ struct ACK {
 bool InitializeWindowsSockets();
 
 // Deli pocetnu poruku na segmente i smesta segmente u bufferPool.
-void CreateSegments(char[], struct Buffer[BUFFER_NUMBER]);
+int CreateSegments(char[], struct Buffer[BUFFER_NUMBER]);
 
 // for demonstration purposes we will hard code
 // local host ip address
@@ -118,7 +118,23 @@ int main(int argc, char* argv[])
 		// Postavlja tim segmentima u bufferPoolu vrednost SegmentContent i SegmentLength. 
 		// Postavlja vrednost polja usingBuffer buffera iz bufferPoola na true za one buffere u koje je smestio segmente.
 		// Ne moraju svi bufferi iz bufferPoola biti zauzeti (ako je poruka kraca).
-		CreateSegments(message, bufferPool);
+		int numberOfSegments = CreateSegments(message, bufferPool);
+
+		// TODO: Poslati broj segmenata serveru pre samih segmenata.
+		iResult = sendto(clientSocket,
+			(char*)&numberOfSegments,
+			sizeof(int),
+			0,
+			(LPSOCKADDR)&serverAddress,
+			sockAddrLen);
+
+		if (iResult == SOCKET_ERROR)
+		{
+			printf("sendto failed with error: %d\n", WSAGetLastError());
+			closesocket(clientSocket);
+			WSACleanup();
+			return 1;
+		}
 
 		bool repeatSend;
 		do
@@ -200,7 +216,9 @@ int main(int argc, char* argv[])
 					break;
 				}
 			}
-		} while (repeatSend);
+		} 
+		while (repeatSend);
+
 		// END --------------------------------------------------------------------
 		printf("Message sent to server, press Enter to continue, press Q key to exit.\n");
 		char exitKey = _getch();
@@ -243,7 +261,7 @@ bool InitializeWindowsSockets()
 	return true;
 }
 
-void CreateSegments(char message[], struct Buffer bufferPool[BUFFER_NUMBER])
+int CreateSegments(char message[], struct Buffer bufferPool[BUFFER_NUMBER])
 {
 	int messageLength = strlen(message);
 
@@ -266,4 +284,6 @@ void CreateSegments(char message[], struct Buffer bufferPool[BUFFER_NUMBER])
 	memcpy(bufferPool[j].pBuffer->SegmentContent, message + i, lengthOfLastSegment);
 	bufferPool[j].pBuffer->SegmentLength = lengthOfLastSegment;
 	bufferPool[j].usingBuffer = true;
+
+	return numberOfBuffers;
 }
