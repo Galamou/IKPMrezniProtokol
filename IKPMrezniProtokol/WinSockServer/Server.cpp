@@ -16,7 +16,7 @@
 // sta se desava)
 #define BUFFER_SIZE 11
 #define SEGMENT_CONTENT_LENGTH (BUFFER_SIZE - 2*sizeof(int) - sizeof(char)) // Duzina poruke u segmentu
-#define BUFFER_NUMBER 10			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
+#define BUFFER_NUMBER 100			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
 #pragma pack(push,1)
@@ -74,11 +74,13 @@ int main(int argc, char* argv[])
 
 	// Testiranje velicine segmenta
 	Segment segmentic;
+	/*
 	printf("%d\n", sizeof(struct Segment));
 	printf("%d\n", sizeof(segmentic.SegmentIndex));
 	printf("%d\n", sizeof(segmentic.SegmentLength));
 	printf("%d\n", sizeof(segmentic.SegmentCRC));
 	printf("%d\n", sizeof(segmentic.SegmentContent));
+	*/
 
 	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength) 
 				  + sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
@@ -94,7 +96,7 @@ int main(int argc, char* argv[])
 		SOCK_DGRAM,   // datagram socket
 		IPPROTO_UDP); // UDP
 
-// check if socket creation succeeded
+	// check if socket creation succeeded
 	if (serverSocket == INVALID_SOCKET)
 	{
 		printf("Creating socket failed with error: %d\n", WSAGetLastError());
@@ -296,3 +298,17 @@ bool InitializeWindowsSockets()
 	}
 	return true;
 }
+
+// Thread recieve message function
+/*
+\	recvfrom -> buffer
+/   if_okay -> usingBuffer = true
+\	else -> usingBuffer = false
+*/
+
+// Thread send message (ACK) function
+/*
+\   
+/
+\
+*/

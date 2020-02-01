@@ -13,7 +13,7 @@
 // sta se desava)
 #define BUFFER_SIZE 11
 #define SEGMENT_CONTENT_LENGTH (BUFFER_SIZE - 2*sizeof(int) - sizeof(char)) // Duzina poruke u segmentu
-#define BUFFER_NUMBER 10			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
+#define BUFFER_NUMBER 100			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
 #pragma pack(push,1)
@@ -110,7 +110,7 @@ int main(int argc, char* argv[])
 	while (1)
 	{
 		// CREATE MESSAGE ---------------------------------------------------------
-		char* message = "012345678";		// za sad kratka poruka da bi mogli da testiramo da li sve radi
+		char* message = "01234567891011121314151617181920212223";		// za sad kratka poruka da bi mogli da testiramo da li sve radi
 
 		// DIVIDE MESSAGE ---------------------------------------------------------
 		
