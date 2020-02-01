@@ -1,6 +1,7 @@
 #include <winsock2.h>
 #include <stdio.h>
 #include <conio.h>
+#include <windows.h>
 
 #define SERVER_PORT 15000
 #define SERVER_SLEEP_TIME 100
@@ -47,9 +48,19 @@ struct ACK {
 };
 #pragma pack(pop)
 
+// Struktura za recieve i sendack threadove
+#pragma pack(push,1)
+struct ThreadParameters {
+	SOCKET* socket;
+	Buffer* bufferPool;
+};
+#pragma pack(pop)
+
 // Initializes WinSock2 library
 // Returns true if succeeded, false otherwise.
 bool InitializeWindowsSockets();
+DWORD WINAPI Recieve(LPVOID lpParam);
+DWORD WINAPI SendAck(LPVOID lpParam);
 
 int main(int argc, char* argv[])
 {
@@ -299,16 +310,208 @@ bool InitializeWindowsSockets()
 	return true;
 }
 
-// Thread recieve message function
+// Thread recieve message function (acceptSocket, bufferPool)
 /*
 \	recvfrom -> buffer
 /   if_okay -> usingBuffer = true
 \	else -> usingBuffer = false
 */
+DWORD WINAPI Recieve(LPVOID lpParam)
+{
+	// size of sockaddr structure
+	int sockAddrLen = sizeof(struct sockaddr);
 
-// Thread send message (ACK) function
+	Segment segmentic;
+	/*
+	printf("%d\n", sizeof(struct Segment));
+	printf("%d\n", sizeof(segmentic.SegmentIndex));
+	printf("%d\n", sizeof(segmentic.SegmentLength));
+	printf("%d\n", sizeof(segmentic.SegmentCRC));
+	printf("%d\n", sizeof(segmentic.SegmentContent));
+	*/
+
+	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength)
+				  + sizeof(segmentic.SegmentCRC)   + sizeof(segmentic.SegmentContent);
+
+	ThreadParameters tp = *(ThreadParameters*)lpParam;
+
+	// Main recieve loop
+	int iResult = -1;
+	while (1)
+	{
+		// clientAddress will be populated from recvfrom
+		sockaddr_in clientAddress;
+		memset(&clientAddress, 0, sizeof(sockaddr_in));
+
+		// set whole buffer to zero
+		// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
+
+		// Initialize select parameters
+		FD_SET set;
+		timeval timeVal;
+
+		FD_ZERO(&set);
+		// Add socket we will wait to read from
+		FD_SET(*tp.socket, &set);
+
+		// Set timeouts to zero since we want select to return
+		// instantaneously
+		timeVal.tv_sec = 0;
+		timeVal.tv_usec = 0;
+
+		iResult = select(0 /* ignored */, &set, NULL, NULL, &timeVal);
+
+		// lets check if there was an error during select
+		if (iResult == SOCKET_ERROR)
+		{
+			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
+			continue;
+		}
+
+		// now, lets check if there are any sockets ready
+		if (iResult == 0)
+		{
+			// there are no ready sockets, sleep for a while and check again
+			Sleep(SERVER_SLEEP_TIME);
+			continue;
+		}
+
+		// set whole buffer to zero
+		struct Buffer* buf;
+
+		for (int i = 0; i < BUFFER_NUMBER; ++i)
+		{
+			if (!tp.bufferPool[i].usingBuffer)
+			{
+				buf = &tp.bufferPool[i];
+				break;
+			}
+		}
+
+		iResult = recvfrom(*tp.socket,
+			(char*)buf->pBuffer,
+			ACCESS_BUFFER_SIZE,
+			0,
+			(LPSOCKADDR)&clientAddress,
+			&sockAddrLen);
+
+		if (iResult == SOCKET_ERROR)
+		{
+			printf("recvfrom failed with error: %d\n", WSAGetLastError());
+			continue;
+		}
+
+		// Racunanje CRC za pristigli segment
+		int remainder = crc((char*)buf->pBuffer, sizeofSeg);
+		if (remainder == 0)
+		{
+			buf->usingBuffer = true;
+		}
+	}
+}
+
+// Thread send message (ACK) function (sendSocket, bufferPool)
 /*
 \   
 /
 \
 */
+DWORD WINAPI SendAck(LPVOID lpParam)
+{
+	// size of sockaddr structure
+	int sockAddrLen = sizeof(struct sockaddr);
+
+	Segment segmentic;
+	/*
+	printf("%d\n", sizeof(struct Segment));
+	printf("%d\n", sizeof(segmentic.SegmentIndex));
+	printf("%d\n", sizeof(segmentic.SegmentLength));
+	printf("%d\n", sizeof(segmentic.SegmentCRC));
+	printf("%d\n", sizeof(segmentic.SegmentContent));
+	*/
+
+	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength)
+				  + sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
+
+	ThreadParameters tp = *(ThreadParameters*)lpParam;
+
+	// Main recieve loop
+	int iResult = -1;
+	while (1)
+	{
+		// clientAddress will be populated from recvfrom
+		sockaddr_in clientAddress;
+		memset(&clientAddress, 0, sizeof(sockaddr_in));
+
+		// set whole buffer to zero
+		// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
+
+		// Initialize select parameters
+		FD_SET set;
+		timeval timeVal;
+
+		FD_ZERO(&set);
+		// Add socket we will wait to read from
+		FD_SET(*tp.socket, &set);
+
+		// Set timeouts to zero since we want select to return
+		// instantaneously
+		timeVal.tv_sec = 0;
+		timeVal.tv_usec = 0;
+
+		iResult = select(0 /* ignored */, NULL, &set, NULL, &timeVal);
+
+		// lets check if there was an error during select
+		if (iResult == SOCKET_ERROR)
+		{
+			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
+			continue;
+		}
+
+		// now, lets check if there are any sockets ready
+		if (iResult == 0)
+		{
+			// there are no ready sockets, sleep for a while and check again
+			Sleep(SERVER_SLEEP_TIME);
+			continue;
+		}
+
+		// SEND ACK ---------------------------------------------------------------
+		struct ACK ack;
+		memset(&ack, 0, sizeof(struct ACK));
+
+		int lastSegmentArrivedIndex = -1;
+		for (int i = 0; i < BUFFER_NUMBER; ++i) 
+		{
+			if (tp.bufferPool[i].usingBuffer)
+			{
+				lastSegmentArrivedIndex = tp.bufferPool[i].pBuffer->SegmentIndex;
+				tp.bufferPool[i].usingBuffer = false;
+				break;
+			}
+		}
+
+		// Popunjavanje strukture za ACK
+		ack.SegmentACK = 1;
+		ack.SegmentIndex = lastSegmentArrivedIndex;
+
+		// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
+		// Posle ce samo odbaciti segment.
+		iResult = sendto(*tp.socket,
+			(char*)&ack,
+			sizeof(struct ACK),
+			0,
+			(LPSOCKADDR)&clientAddress,
+			sockAddrLen);
+
+		if (iResult == SOCKET_ERROR)
+		{
+			printf("sendto failed with error: %d\n", WSAGetLastError());
+			closesocket(*tp.socket);
+			WSACleanup();
+			return 1;
+		}
+
+		printf("Sent ACK = %d\n", ack.SegmentACK);
+	}
+}
