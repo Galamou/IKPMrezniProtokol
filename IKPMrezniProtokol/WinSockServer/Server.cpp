@@ -61,10 +61,14 @@ struct ThreadParameters {
 bool InitializeWindowsSockets();
 DWORD WINAPI Recieve(LPVOID lpParam);
 DWORD WINAPI SendAck(LPVOID lpParam);
+DWORD WINAPI AckTimer(LPVOID param);
 
-// Global client address
+// Global
 // clientAddress will be populated from recvfrom
 sockaddr_in clientAddress;
+// If an ACK should be sent
+bool shouldSendAck = false;
+HANDLE hAckSemaphore;
 
 int main(int argc, char* argv[])
 {
@@ -227,6 +231,12 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 
 	ThreadParameters tp = *(ThreadParameters*)lpParam;
 
+	DWORD ackTimerID;
+	HANDLE hAckTimer;
+
+	hAckSemaphore = CreateSemaphore(0, 0, 1, NULL);                 
+	hAckTimer = CreateThread(NULL, 0, &AckTimer, NULL, 0, &ackTimerID);
+
 	// Main recieve loop
 	int iResult = -1;
 	while (1)
@@ -253,6 +263,8 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 		if (iResult == SOCKET_ERROR)
 		{
 			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
+			CloseHandle(hAckTimer);
+			CloseHandle(hAckSemaphore);
 			return SOCKET_ERROR;
 		}
 
@@ -263,7 +275,7 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 			Sleep(SERVER_SLEEP_TIME);
 			continue;
 		}
-
+		
 		// set whole buffer to zero
 		struct Buffer* buf;
 
@@ -295,7 +307,12 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 		{
 			buf->usingBuffer = true;
 		}
+
+		ReleaseSemaphore(hAckSemaphore, 1, 0);
 	}
+
+	CloseHandle(hAckTimer);
+	CloseHandle(hAckSemaphore);
 
 	return 0;
 }
@@ -329,86 +346,113 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 	int iResult = -1;
 	while (1)
 	{
-		// set whole buffer to zero
-		// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
-
-		// Initialize select parameters
-		FD_SET set;
-		timeval timeVal;
-
-		FD_ZERO(&set);
-		// Add socket we will wait to read from
-		FD_SET(*tp.socket, &set);
-
-		// Set timeouts to zero since we want select to return
-		// instantaneously
-		timeVal.tv_sec = 0;
-		timeVal.tv_usec = 0;
-
-		iResult = select(0 /* ignored */, NULL, &set, NULL, &timeVal);
-
-		// lets check if there was an error during select
-		if (iResult == SOCKET_ERROR)
+		if (shouldSendAck)
 		{
-			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
-			return SOCKET_ERROR;
+			// set whole buffer to zero
+			// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
+
+			// Initialize select parameters
+			FD_SET set;
+			timeval timeVal;
+
+			FD_ZERO(&set);
+			// Add socket we will wait to read from
+			FD_SET(*tp.socket, &set);
+
+			// Set timeouts to zero since we want select to return
+			// instantaneously
+			timeVal.tv_sec = 0;
+			timeVal.tv_usec = 0;
+
+			iResult = select(0 /* ignored */, NULL, &set, NULL, &timeVal);
+
+			// lets check if there was an error during select
+			if (iResult == SOCKET_ERROR)
+			{
+				fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
+				return SOCKET_ERROR;
+			}
+
+			// now, lets check if there are any sockets ready
+			if (iResult == 0)
+			{
+				// there are no ready sockets, sleep for a while and check again
+				Sleep(SERVER_SLEEP_TIME);
+				continue;
+			}
+
+			// SEND ACK ---------------------------------------------------------------
+			struct ACK ack;
+			memset(&ack, 0, sizeof(struct ACK));
+
+			int lastSegmentArrivedIndex = -1;
+			for (int i = 0; i < BUFFER_NUMBER; ++i)
+			{
+				if (tp.bufferPool[i].usingBuffer)
+				{
+					// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
+					char content[SEGMENT_CONTENT_LENGTH + 1];
+					memcpy(content, tp.bufferPool[i].pBuffer->SegmentContent, tp.bufferPool[i].pBuffer->SegmentLength);
+					content[tp.bufferPool[i].pBuffer->SegmentLength] = '\0';
+					printf("\nMessage: %s", content);
+
+					lastSegmentArrivedIndex = tp.bufferPool[i].pBuffer->SegmentIndex;
+					tp.bufferPool[i].usingBuffer = false;
+					break;
+				}
+			}
+
+			if (lastSegmentArrivedIndex != -1)
+			{
+				// Popunjavanje strukture za ACK
+				ack.SegmentACK = 1;
+				ack.SegmentIndex = lastSegmentArrivedIndex;
+
+				// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
+				// Posle ce samo odbaciti segment.
+				iResult = sendto(*tp.socket,
+					(char*)&ack,
+					sizeof(struct ACK),
+					0,
+					(LPSOCKADDR)&clientAddress,
+					sockAddrLen);
+
+				if (iResult == SOCKET_ERROR)
+				{
+					printf("sendto failed with error: %d\n", WSAGetLastError());
+					closesocket(*tp.socket);
+					WSACleanup();
+					return 1;
+				}
+
+				printf("\nSent ACK = %d", ack.SegmentACK);
+			}
 		}
-
-		// now, lets check if there are any sockets ready
-		if (iResult == 0)
+		else
 		{
-			// there are no ready sockets, sleep for a while and check again
 			Sleep(SERVER_SLEEP_TIME);
 			continue;
 		}
-
-		// SEND ACK ---------------------------------------------------------------
-		struct ACK ack;
-		memset(&ack, 0, sizeof(struct ACK));
-
-		int lastSegmentArrivedIndex = -1;
-		for (int i = 0; i < BUFFER_NUMBER; ++i) 
-		{
-			if (tp.bufferPool[i].usingBuffer)
-			{
-				// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
-				char content[SEGMENT_CONTENT_LENGTH + 1];
-				memcpy(content, tp.bufferPool[i].pBuffer->SegmentContent, tp.bufferPool[i].pBuffer->SegmentLength);
-				content[tp.bufferPool[i].pBuffer->SegmentLength] = '\0';
-				printf("\nMessage: %s", content);
-
-				lastSegmentArrivedIndex = tp.bufferPool[i].pBuffer->SegmentIndex;
-				tp.bufferPool[i].usingBuffer = false;
-				break;
-			}
-		}
-
-		if (lastSegmentArrivedIndex != -1)
-		{
-			// Popunjavanje strukture za ACK
-			ack.SegmentACK = 1;
-			ack.SegmentIndex = lastSegmentArrivedIndex;
-
-			// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
-			// Posle ce samo odbaciti segment.
-			iResult = sendto(*tp.socket,
-				(char*)&ack,
-				sizeof(struct ACK),
-				0,
-				(LPSOCKADDR)&clientAddress,
-				sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
-			{
-				printf("sendto failed with error: %d\n", WSAGetLastError());
-				closesocket(*tp.socket);
-				WSACleanup();
-				return 1;
-			}
-
-			printf("\nSent ACK = %d", ack.SegmentACK);
-		}
 	}
 
+	return 0;
+}
+
+DWORD WINAPI AckTimer(LPVOID param) 
+{
+	DWORD result;         
+	while (1) 
+	{                
+		result = WaitForSingleObject(hAckSemaphore, 1000);
+		switch (result)
+		{
+		case WAIT_OBJECT_0:
+			shouldSendAck = false;
+			break;
+		case WAIT_TIMEOUT:
+			shouldSendAck = true;
+		}
+		Sleep(SERVER_SLEEP_TIME);
+	}
 	return 0;
 }
