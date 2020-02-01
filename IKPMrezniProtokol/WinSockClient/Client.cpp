@@ -120,6 +120,7 @@ int main(int argc, char* argv[])
 		// Ne moraju svi bufferi iz bufferPoola biti zauzeti (ako je poruka kraca).
 		int numberOfSegments = CreateSegments(message, bufferPool);
 
+		/*
 		// TODO: Poslati broj segmenata serveru pre samih segmenata.
 		iResult = sendto(clientSocket,
 			(char*)&numberOfSegments,
@@ -135,6 +136,7 @@ int main(int argc, char* argv[])
 			WSACleanup();
 			return 1;
 		}
+		*/
 
 		bool repeatSend;
 		do

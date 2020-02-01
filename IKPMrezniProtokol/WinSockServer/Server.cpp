@@ -62,6 +62,10 @@ bool InitializeWindowsSockets();
 DWORD WINAPI Recieve(LPVOID lpParam);
 DWORD WINAPI SendAck(LPVOID lpParam);
 
+// Global client address
+// clientAddress will be populated from recvfrom
+sockaddr_in clientAddress;
+
 int main(int argc, char* argv[])
 {
 	// Server address
@@ -95,6 +99,8 @@ int main(int argc, char* argv[])
 
 	int sizeofSeg = sizeof(segmentic.SegmentIndex) + sizeof(segmentic.SegmentLength) 
 				  + sizeof(segmentic.SegmentCRC) + sizeof(segmentic.SegmentContent);
+
+	memset(&clientAddress, 0, sizeof(sockaddr_in));
 
 	// Initialize serverAddress structure used by bind
 	memset((char*)&serverAddress, 0, sizeof(serverAddress));
@@ -141,140 +147,29 @@ int main(int argc, char* argv[])
 		}
 	}
 
-	printf("Simple UDP server started and waiting client messages.\n");
+	printf("Simple UDP server started and waiting client messages.\nPress enter to exit...");
 
 	// Main server loop
-	int test = 0; // svaki 2. segment 'nece' dobro proci (radi testiranja ACKa)
-	int totalNumberOfSegments = -1, numberOfSegmentsRecieved = 0;
+	DWORD recieveID, sendID;
+	HANDLE hRecieve, hSend;
+
+	ThreadParameters tp;
+
+	tp.bufferPool = bufferPool;
+	tp.socket = &serverSocket;
+
+	hRecieve = CreateThread(NULL, 0, &Recieve, &tp, 0, &recieveID);
+	hSend = CreateThread(NULL, 0, &SendAck, &tp, 0, &sendID);
+
 	while (1)
 	{
-		// RECEIVE ----------------------------------------------------------------
-		// clientAddress will be set from recvfrom
-		sockaddr_in clientAddress;
-		memset(&clientAddress, 0, sizeof(sockaddr_in));
-
-		if (totalNumberOfSegments == -1)
-		{
-			// receive client message
-			iResult = recvfrom(serverSocket,
-				(char*)&totalNumberOfSegments,
-				sizeof(int),
-				0,
-				(LPSOCKADDR)&clientAddress,
-				&sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
-			{
-				printf("recvfrom failed with error: %d\n", WSAGetLastError());
-				continue;
-			}
-
-			printf("Message arriving: Expecting %d segments!\n", totalNumberOfSegments);
-		}
-		else
-		{
-			// set whole buffer to zero
-			struct Buffer* buf;
-			// memset(&seg, 0, sizeof(struct Segment));
-
-			bool bufferFilled = true;
-			for (int i = 0; i < BUFFER_NUMBER; ++i)
-			{
-				if (!bufferPool[i].usingBuffer)
-				{
-					bufferFilled = false;
-					buf = &bufferPool[i];
-					break;
-				}
-			}
-
-			if (bufferFilled || totalNumberOfSegments == numberOfSegmentsRecieved)
-			{
-				printf("Message recieved:\n");
-
-				// Ispisi poruku
-				for (int i = 0; i < BUFFER_NUMBER && i < totalNumberOfSegments; ++i)
-				{
-					// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
-					char content[SEGMENT_CONTENT_LENGTH + 1];
-					memcpy(content, bufferPool[i].pBuffer->SegmentContent, bufferPool[i].pBuffer->SegmentLength);
-					content[bufferPool[i].pBuffer->SegmentLength] = '\0';
-					printf("%s", content);
-				}
-
-				printf("\n\n");
-
-				// Oslobodi bufferPool
-				for (int i = 0; i < BUFFER_NUMBER && i < totalNumberOfSegments; ++i)
-				{
-					bufferPool[i].usingBuffer = false;
-					memset(bufferPool[i].pBuffer, 0, sizeof(struct Segment));
-				}
-
-				totalNumberOfSegments = -1;
-				numberOfSegmentsRecieved = 0;
-				continue;
-			}
-
-			// receive client message
-			iResult = recvfrom(serverSocket,
-				(char*)buf->pBuffer,
-				sizeof(struct Segment),
-				0,
-				(LPSOCKADDR)&clientAddress,
-				&sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
-			{
-				printf("recvfrom failed with error: %d\n", WSAGetLastError());
-				continue;
-			}
-			else if (iResult == CLIENT_SHUTDOWN)
-			{
-				printf("Client socket shut down.\n");
-				break;
-			}
-
-			// SEND ACK ---------------------------------------------------------------
-			struct ACK ack;
-			memset(&ack, 0, sizeof(struct ACK));
-
-			// Racunanje CRC za pristigli segment
-			int remainder = crc((char*)buf->pBuffer, sizeofSeg);
-
-			// Popunjavanje strukture za ACK
-			ack.SegmentACK = (remainder + test == 0) ? 1 : 0;
-			ack.SegmentIndex = buf->pBuffer->SegmentIndex;
-
-			if (test > 1) test = 0;
-
-			if (ack.SegmentACK == 1)
-			{
-				buf->usingBuffer = true;
-				++numberOfSegmentsRecieved;
-			}
-
-			// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
-			// Posle ce samo odbaciti segment.
-			iResult = sendto(serverSocket,
-				(char*)&ack,
-				sizeof(struct ACK),
-				0,
-				(LPSOCKADDR)&clientAddress,
-				sockAddrLen);
-
-			if (iResult == SOCKET_ERROR)
-			{
-				printf("sendto failed with error: %d\n", WSAGetLastError());
-				closesocket(serverSocket);
-				WSACleanup();
-				return 1;
-			}
-
-			printf("Sent ACK = %d\n", ack.SegmentACK);
-		}
-		// possible message processing logic could be placed here
+		int liI = getchar();
+		
+		if (liI == 10 || liI == 13) break;
 	}
+
+	CloseHandle(hRecieve);
+	CloseHandle(hSend);
 
 	// if we are here, it means that server is shutting down
 	// close socket and unintialize WinSock2 library
@@ -291,9 +186,6 @@ int main(int argc, char* argv[])
 		printf("WSACleanup failed with error: %ld\n", WSAGetLastError());
 		return 1;
 	}
-
-	printf("Press Enter to close application...");
-	_getch();
 
 	return 0;
 }
@@ -339,10 +231,6 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 	int iResult = -1;
 	while (1)
 	{
-		// clientAddress will be populated from recvfrom
-		sockaddr_in clientAddress;
-		memset(&clientAddress, 0, sizeof(sockaddr_in));
-
 		// set whole buffer to zero
 		// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
 
@@ -365,7 +253,7 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 		if (iResult == SOCKET_ERROR)
 		{
 			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
-			continue;
+			return SOCKET_ERROR;
 		}
 
 		// now, lets check if there are any sockets ready
@@ -408,6 +296,8 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 			buf->usingBuffer = true;
 		}
 	}
+
+	return 0;
 }
 
 // Thread send message (ACK) function (sendSocket, bufferPool)
@@ -439,10 +329,6 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 	int iResult = -1;
 	while (1)
 	{
-		// clientAddress will be populated from recvfrom
-		sockaddr_in clientAddress;
-		memset(&clientAddress, 0, sizeof(sockaddr_in));
-
 		// set whole buffer to zero
 		// memset(accessBuffer, 0, ACCESS_BUFFER_SIZE);
 
@@ -465,7 +351,7 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 		if (iResult == SOCKET_ERROR)
 		{
 			fprintf(stderr, "select failed with error: %ld\n", WSAGetLastError());
-			continue;
+			return SOCKET_ERROR;
 		}
 
 		// now, lets check if there are any sockets ready
@@ -485,33 +371,44 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 		{
 			if (tp.bufferPool[i].usingBuffer)
 			{
+				// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
+				char content[SEGMENT_CONTENT_LENGTH + 1];
+				memcpy(content, tp.bufferPool[i].pBuffer->SegmentContent, tp.bufferPool[i].pBuffer->SegmentLength);
+				content[tp.bufferPool[i].pBuffer->SegmentLength] = '\0';
+				printf("\nMessage: %s", content);
+
 				lastSegmentArrivedIndex = tp.bufferPool[i].pBuffer->SegmentIndex;
 				tp.bufferPool[i].usingBuffer = false;
 				break;
 			}
 		}
 
-		// Popunjavanje strukture za ACK
-		ack.SegmentACK = 1;
-		ack.SegmentIndex = lastSegmentArrivedIndex;
-
-		// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
-		// Posle ce samo odbaciti segment.
-		iResult = sendto(*tp.socket,
-			(char*)&ack,
-			sizeof(struct ACK),
-			0,
-			(LPSOCKADDR)&clientAddress,
-			sockAddrLen);
-
-		if (iResult == SOCKET_ERROR)
+		if (lastSegmentArrivedIndex != -1)
 		{
-			printf("sendto failed with error: %d\n", WSAGetLastError());
-			closesocket(*tp.socket);
-			WSACleanup();
-			return 1;
-		}
+			// Popunjavanje strukture za ACK
+			ack.SegmentACK = 1;
+			ack.SegmentIndex = lastSegmentArrivedIndex;
 
-		printf("Sent ACK = %d\n", ack.SegmentACK);
+			// Za sad salje ACK i kad je CRC propao cisto da se na klijentu ispise da nije uspelo. 
+			// Posle ce samo odbaciti segment.
+			iResult = sendto(*tp.socket,
+				(char*)&ack,
+				sizeof(struct ACK),
+				0,
+				(LPSOCKADDR)&clientAddress,
+				sockAddrLen);
+
+			if (iResult == SOCKET_ERROR)
+			{
+				printf("sendto failed with error: %d\n", WSAGetLastError());
+				closesocket(*tp.socket);
+				WSACleanup();
+				return 1;
+			}
+
+			printf("\nSent ACK = %d", ack.SegmentACK);
+		}
 	}
+
+	return 0;
 }
