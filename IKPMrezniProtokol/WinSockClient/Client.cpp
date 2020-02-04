@@ -15,7 +15,7 @@
 // sta se desava)
 #define BUFFER_SIZE 11
 #define SEGMENT_CONTENT_LENGTH (BUFFER_SIZE - 2*sizeof(int) - sizeof(char)) // Duzina poruke u segmentu
-#define BUFFER_NUMBER 100			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
+#define BUFFER_NUMBER 10000			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
 #pragma pack(push,1)
@@ -67,7 +67,7 @@ bool InitializeWindowsSockets();
 DWORD WINAPI Send(LPVOID lpParam);
 DWORD WINAPI ReceiveAck(LPVOID lpParam);
 DWORD WINAPI AckTimer(LPVOID param);
-int CreateSegments(char[], struct Buffer[BUFFER_NUMBER]); // Deli pocetnu poruku na segmente i smesta segmente u bufferPool.
+int CreateSegments(char[], int, struct Buffer[BUFFER_NUMBER]); // Deli pocetnu poruku na segmente i smesta segmente u bufferPool.
 
 // Global
 // Index from which client sends messages.
@@ -219,7 +219,12 @@ DWORD WINAPI Send(LPVOID lpParam)
 	while (1)
 	{
 		// CREATE MESSAGE ---------------------------------------------------------------------------------------------------
-		char* message = "01234567891011121314151617181920212223";		// za sad kratka poruka da bi mogli da testiramo da li sve radi
+		// char* message = "01234567891011121314151617181920212223";		// za sad kratka poruka da bi mogli da testiramo da li sve radi
+		char* message = (char*)malloc(sizeof(char) * 4000);
+		for (int i = 0; i < 4000; ++i)
+		{
+			message[i] = (char) (i % 9 + 48);
+		}
 
 		// DIVIDE MESSAGE ---------------------------------------------------------------------------------------------------
 
@@ -227,7 +232,7 @@ DWORD WINAPI Send(LPVOID lpParam)
 		// Postavlja tim segmentima u bufferPoolu vrednost SegmentContent i SegmentLength. 
 		// Postavlja vrednost polja usingBuffer buffera iz bufferPoola na true za one buffere u koje je smestio segmente.
 		// Ne moraju svi bufferi iz bufferPoola biti zauzeti (ako je poruka kraca).
-		int localNumberOfSegments = CreateSegments(message, bufferPool);
+		int localNumberOfSegments = CreateSegments(message, 4000, bufferPool);
 		
 		// Kaze receiveAck threadu koji je broj segmenata, da bi znao posle koliko ackova da se resetuje
 		EnterCriticalSection(&csNumberOfSegments);
@@ -312,7 +317,7 @@ DWORD WINAPI Send(LPVOID lpParam)
 				char content[SEGMENT_CONTENT_LENGTH + 1];
 				memcpy(content, bufferPool[i].pBuffer->SegmentContent, bufferPool[i].pBuffer->SegmentLength);
 				content[bufferPool[i].pBuffer->SegmentLength] = '\0';
-				printf("Sent message: %s\n", content);
+				printf("Sent message: %s, %d\n", content, bufferPool[i].pBuffer->SegmentIndex);
 
 				// Ako smo poslali sve segmente, ali ack nije stigao za sve segmente plus TIMEOUT se nije desio ni na jednom segmentu.
 				// Cekamo da se ili ackuju ne ackovani segmenti ili da nekom segmentu istekne TIMEOUT.
@@ -374,7 +379,7 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 
 	int localAckIndex = 0;
 	// Timeout u milisekundama.
-	int TIMEOUT_LENGTH = 1000;
+	int TIMEOUT_LENGTH = 5000;
 	int localNumberOfSegments = -1;
 	EnterCriticalSection(&csNumberOfSegments);
 	localNumberOfSegments = *(tp.numberOfSegments);
@@ -493,10 +498,8 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 	}
 }
 
-int CreateSegments(char message[], struct Buffer bufferPool[BUFFER_NUMBER])
+int CreateSegments(char message[], int messageLength, struct Buffer bufferPool[BUFFER_NUMBER])
 {
-	int messageLength = strlen(message);
-
 	int numberOfBuffers = messageLength / SEGMENT_CONTENT_LENGTH;
 
 	// da li je poruka deljiva sa brojem buffera

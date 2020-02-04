@@ -1,10 +1,12 @@
-#include <winsock2.h>
+﻿#include <winsock2.h>
 #include <stdio.h>
 #include <conio.h>
 #include <windows.h>
 
+using namespace std;
+
 #define SERVER_PORT 15000
-#define SERVER_SLEEP_TIME 100
+#define SERVER_SLEEP_TIME 50
 #define ACCESS_BUFFER_SIZE 1024
 #define IP_ADDRESS_LEN 16
 
@@ -17,7 +19,7 @@
 // sta se desava)
 #define BUFFER_SIZE 11
 #define SEGMENT_CONTENT_LENGTH (BUFFER_SIZE - 2*sizeof(int) - sizeof(char)) // Duzina poruke u segmentu
-#define BUFFER_NUMBER 100			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
+#define BUFFER_NUMBER 10000			// Proizvoljno, za sad je 10 dovoljno (za testiranje moze i vise 100-tina)
 
 // Struktura za prenosenje i segmenta i CRC za segment
 #pragma pack(push,1)
@@ -281,17 +283,27 @@ DWORD WINAPI Recieve(LPVOID lpParam)
 			Sleep(SERVER_SLEEP_TIME);
 			continue;
 		}
+
+		shouldSendAck = false;
 		
 		// set whole buffer to zero
 		struct Buffer* buf;
 
+		bool noAvailableBuffers = true;
 		for (int i = 0; i < BUFFER_NUMBER; ++i)
 		{
 			if (!tp.bufferPool[i].usingBuffer)
 			{
 				buf = &tp.bufferPool[i];
+				noAvailableBuffers = false;
 				break;
 			}
+		}
+
+		if (noAvailableBuffers) 
+		{
+			shouldSendAck = true;
+			continue;
 		}
 
 		iResult = recvfrom(*tp.socket,
@@ -382,7 +394,6 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 			// now, lets check if there are any sockets ready
 			if (iResult == 0)
 			{
-				// there are no ready sockets, sleep for a while and check again
 				Sleep(SERVER_SLEEP_TIME);
 				continue;
 			}
@@ -392,24 +403,38 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 			memset(&ack, 0, sizeof(struct ACK));
 
 			int lastSegmentArrivedIndex = -1;
+			int lastSegmentIndexInArray = -1;
 			for (int i = 0; i < BUFFER_NUMBER; ++i)
 			{
-				if (tp.bufferPool[i].usingBuffer)
+				if (tp.bufferPool[i].usingBuffer && tp.bufferPool[i].pBuffer->SegmentIndex > lastSegmentArrivedIndex)
 				{
-					// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
-					char content[SEGMENT_CONTENT_LENGTH + 1];
-					memcpy(content, tp.bufferPool[i].pBuffer->SegmentContent, tp.bufferPool[i].pBuffer->SegmentLength);
-					content[tp.bufferPool[i].pBuffer->SegmentLength] = '\0';
-					printf("\nMessage: %s", content);
-
+					lastSegmentIndexInArray = i;
 					lastSegmentArrivedIndex = tp.bufferPool[i].pBuffer->SegmentIndex;
-					tp.bufferPool[i].usingBuffer = false;
-					break;
 				}
 			}
 
 			if (lastSegmentArrivedIndex != -1)
 			{
+				printf("\nMessage: ");
+				bool unUsedIndexes[BUFFER_NUMBER];
+				for (int i = 0; i < BUFFER_NUMBER; ++i)
+				{
+					if (tp.bufferPool[i].usingBuffer && tp.bufferPool[i].pBuffer->SegmentIndex <= lastSegmentArrivedIndex)
+					{
+						if (unUsedIndexes[tp.bufferPool[i].pBuffer->SegmentIndex])
+						{
+							// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
+							char content[SEGMENT_CONTENT_LENGTH + 1];
+							memcpy(content, tp.bufferPool[i].pBuffer->SegmentContent, tp.bufferPool[i].pBuffer->SegmentLength);
+							content[tp.bufferPool[i].pBuffer->SegmentLength] = '\0';
+							printf("%s", content);
+						}
+
+						unUsedIndexes[tp.bufferPool[i].pBuffer->SegmentIndex] = false;
+						tp.bufferPool[i].usingBuffer = false;
+					}
+				}
+
 				// Popunjavanje strukture za ACK
 				ack.SegmentACK = 1;
 				ack.SegmentIndex = lastSegmentArrivedIndex;
@@ -431,7 +456,9 @@ DWORD WINAPI SendAck(LPVOID lpParam)
 					return 1;
 				}
 
-				printf("\nSent ACK = %d", ack.SegmentACK);
+				printf("\nSent ACK = %d, %d", ack.SegmentACK, ack.SegmentIndex);
+
+				shouldSendAck = false;
 			}
 		}
 		else
@@ -449,7 +476,7 @@ DWORD WINAPI AckTimer(LPVOID param)
 	DWORD result;         
 	while (1) 
 	{                
-		result = WaitForSingleObject(hAckSemaphore, 1000);
+		result = WaitForSingleObject(hAckSemaphore, 100);
 		switch (result)
 		{
 		case WAIT_OBJECT_0:
@@ -457,6 +484,7 @@ DWORD WINAPI AckTimer(LPVOID param)
 			break;
 		case WAIT_TIMEOUT:
 			shouldSendAck = true;
+			break;
 		}
 		Sleep(SERVER_SLEEP_TIME);
 	}
