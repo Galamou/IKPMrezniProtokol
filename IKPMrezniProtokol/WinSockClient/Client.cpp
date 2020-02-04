@@ -65,6 +65,7 @@ struct ThreadParameters {
 	int* ackIndex;
 	TIMEOUT* timeouts;
 	int* numberOfSegments;
+	int* lastSentSegmentIndex;
 };
 
 bool InitializeWindowsSockets();
@@ -79,6 +80,7 @@ int CreateSegments(char[], int, struct Buffer[BUFFER_NUMBER]); // Deli pocetnu p
 CRITICAL_SECTION csAckIndex;
 CRITICAL_SECTION csTimeouts;
 CRITICAL_SECTION csNumberOfSegments;
+CRITICAL_SECTION csLastSentSegmentIndex;
 bool run = true;
 
 // for demonstration purposes we will hard code
@@ -120,15 +122,18 @@ int main(int argc, char* argv[])
 	ThreadParameters tp;
 	int ackIndex = -1;
 	int numberOfSegments = -1;
+	int lastSentSegmentIndex = -1;
 
 	tp.clientSocket = &clientSocket;
 	tp.ackIndex = &ackIndex;
 	tp.numberOfSegments = &numberOfSegments;
 	tp.timeouts = timeouts;
+	tp.lastSentSegmentIndex = &lastSentSegmentIndex;
 
 	InitializeCriticalSection(&csAckIndex);
 	InitializeCriticalSection(&csNumberOfSegments);
 	InitializeCriticalSection(&csTimeouts);
+	InitializeCriticalSection(&csLastSentSegmentIndex);
 
 	hReceive = CreateThread(NULL, 0, &Send, &tp, 0, &sendID);
 	hSend = CreateThread(NULL, 0, &ReceiveAck, &tp, 0, &receiveID);
@@ -144,6 +149,7 @@ int main(int argc, char* argv[])
 	DeleteCriticalSection(&csAckIndex);
 	DeleteCriticalSection(&csNumberOfSegments);
 	DeleteCriticalSection(&csTimeouts);
+	DeleteCriticalSection(&csLastSentSegmentIndex);
 
 	CloseHandle(hReceive);
 	CloseHandle(hSend);
@@ -249,7 +255,7 @@ DWORD WINAPI Send(LPVOID lpParam)
 		EnterCriticalSection(&csAckIndex);
 		*(tp.ackIndex) = localAckIdex;
 		LeaveCriticalSection(&csAckIndex);
-
+		
 		// Salju se svi segmenti jedne poruke jedan po jedan.
 		for (int i = 0; i < localNumberOfSegments; i++)
 		{
@@ -318,6 +324,11 @@ DWORD WINAPI Send(LPVOID lpParam)
 				tp.timeouts[i].SegmentIndex = i;
 				tp.timeouts[i].SegmentSent = ms;
 				LeaveCriticalSection(&csTimeouts);
+
+				// Pamtimo indeks poslednjeg poslatog segmenta. Potreban je receiveAck threadu.
+				EnterCriticalSection(&csLastSentSegmentIndex);
+				*(tp.lastSentSegmentIndex) = i;
+				LeaveCriticalSection(&csLastSentSegmentIndex);
 
 				// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
 				char content[SEGMENT_CONTENT_LENGTH + 1];
@@ -463,9 +474,14 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 			}
 		}
 
+		// Preuzimanje indeksa poslednjeg poslatog segmenta.
+		EnterCriticalSection(&csLastSentSegmentIndex);
+		int localLastSentSegmentIndex = *(tp.lastSentSegmentIndex);
+		LeaveCriticalSection(&csLastSentSegmentIndex);
+
 		// Da li se desio TIMEOUT za bilo koji segment?
 		EnterCriticalSection(&csTimeouts);
-		for (int i = localAckIndex;i < localNumberOfSegments;i++)
+		for (int i = localAckIndex;i < localLastSentSegmentIndex;i++)
 		{
 			milliseconds ms = duration_cast<milliseconds>(
 				system_clock::now().time_since_epoch()
