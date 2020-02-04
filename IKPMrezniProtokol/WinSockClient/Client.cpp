@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <conio.h>
 
+#include <chrono>
+
+using namespace std::chrono;
+
 #define SERVER_PORT 15000
 #define OUTGOING_BUFFER_SIZE 1024
 #define IP_ADDRESS_LEN 16
@@ -50,7 +54,7 @@ struct ACK {
 #pragma pack(push,1)
 struct TIMEOUT {
 	int SegmentIndex;
-	DWORD SegmentSent;                        // Kad je segment poslat
+	milliseconds SegmentSent;                        // Kad je segment poslat
 };
 #pragma pack(pop)
 
@@ -306,11 +310,13 @@ DWORD WINAPI Send(LPVOID lpParam)
 				}
 
 				// Dobavljamo sistemsko vreme.
-				SYSTEMTIME t;
-				GetSystemTime(&t);
+				milliseconds ms = duration_cast<milliseconds>(
+					system_clock::now().time_since_epoch()
+				);
 				// Pamtimo kad smo poslali segment zbog TIMEOUTa.
 				EnterCriticalSection(&csTimeouts);
-				tp.timeouts[i].SegmentSent = t.wMilliseconds;
+				tp.timeouts[i].SegmentIndex = i;
+				tp.timeouts[i].SegmentSent = ms;
 				LeaveCriticalSection(&csTimeouts);
 
 				// Ispis poslate poruke. (dodajemo na kraj '\0' da moze da se ispise)
@@ -379,7 +385,7 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 
 	int localAckIndex = 0;
 	// Timeout u milisekundama.
-	int TIMEOUT_LENGTH = 5000;
+	milliseconds TIMEOUT_LENGTH(5000);
 	int localNumberOfSegments = -1;
 	EnterCriticalSection(&csNumberOfSegments);
 	localNumberOfSegments = *(tp.numberOfSegments);
@@ -461,12 +467,13 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 		EnterCriticalSection(&csTimeouts);
 		for (int i = localAckIndex;i < localNumberOfSegments;i++)
 		{
-			// Dobavljamo sistemsko vreme.
-			SYSTEMTIME t;
-			GetSystemTime(&t);
+			milliseconds ms = duration_cast<milliseconds>(
+				system_clock::now().time_since_epoch()
+			);
 
 			// Da li se desio TIMEOUT za i-ti segment?
-			if (t.wMilliseconds - tp.timeouts[i].SegmentSent > TIMEOUT_LENGTH)
+			milliseconds timePassed = ms - tp.timeouts[i].SegmentSent;
+			if (ms - tp.timeouts[i].SegmentSent > TIMEOUT_LENGTH)
 			{
 				// Desio se timeout za i-ti segment.
 				EnterCriticalSection(&csAckIndex);
