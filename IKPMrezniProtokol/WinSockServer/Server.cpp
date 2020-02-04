@@ -175,6 +175,12 @@ int main(int argc, char* argv[])
 	CloseHandle(hRecieve);
 	CloseHandle(hSend);
 
+	// DEALLOCATE MEMORY FOR BUFFER POOL
+	for (int i = 0; i < BUFFER_NUMBER; i++)
+	{
+		free(bufferPool[i].pBuffer);
+	}
+
 	// if we are here, it means that server is shutting down
 	// close socket and unintialize WinSock2 library
 	iResult = closesocket(serverSocket);
