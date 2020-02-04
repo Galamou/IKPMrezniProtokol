@@ -75,6 +75,7 @@ int CreateSegments(char[], struct Buffer[BUFFER_NUMBER]); // Deli pocetnu poruku
 CRITICAL_SECTION csAckIndex;
 CRITICAL_SECTION csTimeouts;
 CRITICAL_SECTION csNumberOfSegments;
+bool run = true;
 
 // for demonstration purposes we will hard code
 // local host ip address
@@ -128,19 +129,20 @@ int main(int argc, char* argv[])
 	hReceive = CreateThread(NULL, 0, &Send, &tp, 0, &sendID);
 	hSend = CreateThread(NULL, 0, &ReceiveAck, &tp, 0, &receiveID);
 
-	while (1)
+	while (run)
 	{
-		int liI = getchar();
+		Sleep(CLIENT_SLEEP_TIME);
+		/*int liI = getchar();
 
-		if (liI == 10 || liI == 13) break;
+		if (liI == 10 || liI == 13) break;*/
 	}
-
-	CloseHandle(hReceive);
-	CloseHandle(hSend);
 
 	DeleteCriticalSection(&csAckIndex);
 	DeleteCriticalSection(&csNumberOfSegments);
 	DeleteCriticalSection(&csTimeouts);
+
+	CloseHandle(hReceive);
+	CloseHandle(hSend);
 
 	// If we are here, it means client is shutting down.
 	iResult = closesocket(clientSocket);
@@ -181,8 +183,6 @@ bool InitializeWindowsSockets()
 DWORD WINAPI Send(LPVOID lpParam)
 {
 	ThreadParameters tp = *(ThreadParameters*)lpParam;
-	//printf("Index: %d, Sent: %d\n", tp.timeouts[0].SegmentIndex, tp.timeouts[0].SegmentSent);
-
 
 	// Alociranje memorije za buffer.
 	// Postavlja vrednost polja usingBuffer svakog buffera u bufferPoolu na false.
@@ -235,7 +235,11 @@ DWORD WINAPI Send(LPVOID lpParam)
 		LeaveCriticalSection(&csNumberOfSegments);
 
 		// SEND --------------------------------------------------------------------------------------------------------------
-		int lastAckedSegment = -1;
+		int localAckIdex = -1;
+		// Namesta ackIndex na pocetnu vrednost.
+		EnterCriticalSection(&csAckIndex);
+		*(tp.ackIndex) = localAckIdex;
+		LeaveCriticalSection(&csAckIndex);
 
 		// Salju se svi segmenti jedne poruke jedan po jedan.
 		for (int i = 0; i < localNumberOfSegments; i++)
@@ -246,16 +250,16 @@ DWORD WINAPI Send(LPVOID lpParam)
 
 			// Poslednji ackovan index
 			EnterCriticalSection(&csAckIndex);
-			lastAckedSegment = *(tp.ackIndex);
+			localAckIdex = *(tp.ackIndex);
 
 			// indexACK = -1 -> i se ne menja
 			// indexACK != -1 -> i = indexACK
-			if (lastAckedSegment != -1)
+			if (localAckIdex != -1)
 			{
 				// Zanavljamo od poslednjeg ackovanog segmenta
-				i = lastAckedSegment;
+				i = localAckIdex;
 				// Kazemo da su svi bufferi pre tog segmenta slobodni, svi bufferi posle tog segmenta ostaju zauzeti
-				for (int j = 0;j < lastAckedSegment;j++)
+				for (int j = 0;j < localAckIdex;j++)
 				{
 					// Poruka za ovaj buffre je ACKovana, i buffer moze da se oslobodi
 					bufferPool[i].usingBuffer = false;
@@ -313,14 +317,14 @@ DWORD WINAPI Send(LPVOID lpParam)
 				// Ako smo poslali sve segmente, ali ack nije stigao za sve segmente plus TIMEOUT se nije desio ni na jednom segmentu.
 				// Cekamo da se ili ackuju ne ackovani segmenti ili da nekom segmentu istekne TIMEOUT.
 				// ackIndex je -2 ako je poslednji segment ackovan
-				while (lastAckedSegment != -2 && i == BUFFER_NUMBER - 1)
+				while (localAckIdex != -2 && i == BUFFER_NUMBER - 1)
 				{
 					printf("Waiting for last segments to get ACKed...\n");
 					Sleep(CLIENT_SLEEP_TIME);
 
 					// Uzmi novu vrednost ackIndexa
 					EnterCriticalSection(&csAckIndex);
-					lastAckedSegment = *(tp.ackIndex);
+					localAckIdex = *(tp.ackIndex);
 					LeaveCriticalSection(&csAckIndex);
 				}
 			}
@@ -339,6 +343,8 @@ DWORD WINAPI Send(LPVOID lpParam)
 	{
 		free(bufferPool[i].pBuffer);
 	}
+
+	run = false;
 }
 
 // Thread receive ack function (clientSocket, ackIndex, numberOfSegments, timeouts)
@@ -366,7 +372,7 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 	serverAddress.sin_addr.s_addr = inet_addr(SERVER_IP_ADDERESS);
 	serverAddress.sin_port = htons((u_short)serverPort);
 
-	int localAckIndex = -1;
+	int localAckIndex = 0;
 	// Timeout u milisekundama.
 	int TIMEOUT_LENGTH = 1000;
 	int localNumberOfSegments = -1;
@@ -383,6 +389,7 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 			EnterCriticalSection(&csNumberOfSegments);
 			localNumberOfSegments = *(tp.numberOfSegments);
 			LeaveCriticalSection(&csNumberOfSegments);
+			Sleep(CLIENT_SLEEP_TIME);
 		}
 
 		// SELECT ---------------------------------------------------------------------------------------------------------
@@ -409,42 +416,40 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 		}
 
 		// Da li je clientSocket dobio poruku?
-		if (iResult == 0)
+		if (iResult != 0)
 		{
-			// Nije dobio poruku. Ceka se CLIENT_SLEEP_TIME i pita ponovo.
-			Sleep(CLIENT_SLEEP_TIME);
-			continue;
-		}
+			// Dobio je poruku.
+			
+			// RECEIVE --------------------------------------------------------------------------------------------------------
+			// Ack
+			struct ACK ack;
+			memset(&ack, 0, sizeof(struct ACK));
 
-		// RECEIVE --------------------------------------------------------------------------------------------------------
-		// Ack
-		struct ACK ack;
-		memset(&ack, 0, sizeof(struct ACK));
-		
-		// Primamo ack.
-		iResult = recvfrom(*(tp.clientSocket),
-			(char*)&ack,
-			sizeof(struct ACK),
-			0,
-			(LPSOCKADDR)&serverAddress,
-			&sockAddrLen);
+			// Primamo ack.
+			iResult = recvfrom(*(tp.clientSocket),
+				(char*)&ack,
+				sizeof(struct ACK),
+				0,
+				(LPSOCKADDR)&serverAddress,
+				&sockAddrLen);
 
-		// Da li je doslo do greske kod primanja poruke?
-		if (iResult == SOCKET_ERROR)
-		{
-			// Doslo je do greske. Primamo poruku ispocetka.
-			printf("recvfrom failed with error: %d\n", WSAGetLastError());
-			continue;
-		}
+			// Da li je doslo do greske kod primanja poruke?
+			if (iResult == SOCKET_ERROR)
+			{
+				// Doslo je do greske. Primamo poruku ispocetka.
+				printf("recvfrom failed with error: %d\n", WSAGetLastError());
+				continue;
+			}
 
-		// Ispisujemo primljenu poruku.
-		printf("Received ACK = %d\n", ack.SegmentACK);
+			// Ispisujemo primljenu poruku.
+			printf("Received ACK = %d\n", ack.SegmentACK);
 
-		// Da li je segment ackovan?
-		if (ack.SegmentACK == 1)
-		{
-			// Segment je ACKovan, pa pamtimo indeks tog segmenta.
-			localAckIndex = ack.SegmentIndex;
+			// Da li je segment ackovan?
+			if (ack.SegmentACK == 1)
+			{
+				// Segment je ACKovan, pa pamtimo indeks tog segmenta.
+				localAckIndex = ack.SegmentIndex;
+			}
 		}
 
 		// Da li se desio TIMEOUT za bilo koji segment?
@@ -470,7 +475,7 @@ DWORD WINAPI ReceiveAck(LPVOID lpParam)
 		LeaveCriticalSection(&csTimeouts);
 
 		// Da li smo primili ack za poslednji segment?
-		if (localAckIndex = localNumberOfSegments - 1)
+		if (localAckIndex == localNumberOfSegments - 1)
 		{
 			// Primili smo ack za poslednji segment.
 			EnterCriticalSection(&csAckIndex);
